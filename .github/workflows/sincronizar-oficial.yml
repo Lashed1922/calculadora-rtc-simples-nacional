@@ -1,0 +1,47 @@
+name: Sincronizar com o repositório oficial da Receita
+
+# Cópia de segurança (backup) de ReceitaFederal/calculadora-rtc-simples-nacional. Toda segunda-feira, às 06:40 de Brasília, e pelo botão "Run workflow",
+# busca o repositório oficial e junta aqui o que for novo (commits e tags). Não precisa de senha nem de segredo: usa só o token do próprio repositório.
+# Se o oficial não mudou, não faz nada. Se a junção falhar (por exemplo, o oficial mexeu em arquivos de .github/workflows, que o token
+# do GitHub Actions não pode gravar), a execução fica vermelha e o GitHub avisa por e-mail: nesse caso, atualizar a mão.
+on:
+  schedule:
+    - cron: '40 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sincronizar-oficial
+  cancel-in-progress: false
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Buscar o oficial e juntar o que for novo
+        run: |
+          set -euo pipefail
+          git config user.name "Backup (robô)"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add oficial https://github.com/ReceitaFederal/calculadora-rtc-simples-nacional.git
+          git fetch oficial main --tags --no-recurse-submodules
+          ANTES=$(git rev-parse HEAD)
+          if git merge-base --is-ancestor oficial/main HEAD; then
+            echo "Já está em dia com o oficial ($(git rev-parse --short oficial/main))."
+          else
+            git merge --no-edit oficial/main || { git merge --abort; echo "::error::Não consegui juntar o oficial automaticamente."; exit 1; }
+            git push origin HEAD:main
+          fi
+          git push origin --tags
+          {
+            echo "### Sincronização com ReceitaFederal/calculadora-rtc-simples-nacional"
+            echo "- Oficial: \`$(git rev-parse --short oficial/main)\`; este repositório: \`$(git rev-parse --short HEAD)\`"
+            echo "- Última tag: \`$(git tag --sort=-v:refname | head -n 1)\`"
+            if [ "$ANTES" != "$(git rev-parse HEAD)" ]; then echo "- Novidades trazidas:"; git log --oneline "$ANTES..HEAD" | sed 's/^/  - /'; else echo "- Nada novo no oficial."; fi
+          } >> "$GITHUB_STEP_SUMMARY"
